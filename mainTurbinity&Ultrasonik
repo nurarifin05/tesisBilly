@@ -1,0 +1,50 @@
+#include <Ultrasonic.h>
+#include <Wire.h>
+//int kekeruhan = 36;
+long duration;
+int jarakAirdanSensor;
+long tinggiBak;
+float ketinggianAir;
+long Volume;
+
+#define echoPin 23
+#define trigPin 22
+#define kekeruhan 36
+void setup() {
+  Serial.begin(9600);
+   pinMode(trigPin, OUTPUT);
+  pinMode(echoPin, INPUT);
+  tinggiBak=20;
+
+}
+void loop() {
+  int sensorValue = analogRead(kekeruhan);
+  float voltage = sensorValue * (5.0 / 1024.0) - 5.5;
+  Serial.println ("Sensor Output (V):");
+  Serial.println (voltage);
+  delay(1000);
+    
+  digitalWrite(trigPin, LOW);
+  delayMicroseconds(2);
+  digitalWrite(trigPin, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trigPin, LOW);
+  
+  
+  jarakAirdanSensor = pulseIn(echoPin, HIGH);
+  jarakAirdanSensor= jarakAirdanSensor*0.034/2;
+  
+  Serial.print("jarak air ke sensor: ");
+  Serial.println(jarakAirdanSensor);
+  delay(100);
+  
+  ketinggianAir = tinggiBak-jarakAirdanSensor;
+  Serial.print("Tinggi air: ");
+  Serial.println(ketinggianAir);
+  delay(100);
+  
+  Volume = 3.14*49*ketinggianAir;
+  Serial.print("Volume Air: ");
+  Serial.println(Volume);
+  delay(100);
+}
