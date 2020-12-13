@@ -1,0 +1,204 @@
+#include <WiFi.h> 
+#include <WiFiClient.h> 
+#include <PubSubClient.h>
+#include <Ultrasonic.h>
+#include <Wire.h>
+#include <EEPROM.h>
+#include "GravityTDS.h"
+#include "DHT.h";
+
+
+const char* ssid = "M2fleet";  
+const char* password = "logika9119";
+
+const char* mqtt_server = "202.154.56.24"; 
+const char* mqtt_user = "billy"; 
+const char* mqtt_password = "mqtt2020";
+
+
+WiFiClient espClient;
+PubSubClient client(espClient);
+
+long duration;
+int jarakAirdanSensor;
+long tinggiBak;
+float ketinggianAir;
+long Volume;
+unsigned long int avgValue;
+float b;
+int buf[10],temp;
+float temperature = 25,tdsValue = 456, usValue = 588;
+int kekeruhan = 36;
+
+#define echoPin 23
+#define trigPin 22
+
+#define SensorPin 39
+#define TdsSensorPin 34
+GravityTDS gravityTds;
+#define DHTPIN 4 
+#define DHTTYPE DHT22 
+DHT dht (DHTPIN, DHTTYPE);
+
+long lastMsg = 0;
+char msg[20];
+
+
+void receivedCallback(char* topic, byte* payload, unsigned int length) {
+  Serial.print("Message received: ");
+  Serial.println(topic);
+  String payloadtemp;
+
+  Serial.print("payload: ");
+  for (int i = 0; i < length; i++) {
+    Serial.print((char)payload[i]);
+  }
+  Serial.println();
+
+}
+
+void mqttconnect() {
+
+  while (!client.connected()) {
+    Serial.print("MQTT connecting ...");
+
+    String clientId = "ESP32Client";
+
+    if (client.connect(clientId.c_str(), mqtt_user, mqtt_password)) {
+      Serial.println("connected");
+    } else{
+      Serial.print("failed, status code =");
+      Serial.print(client.state());
+      Serial.println("try again in 5 seconds");
+
+      delay(5000);
+    }
+  }
+
+}
+
+
+
+void setup() {
+  Serial.begin(115200);
+  Serial.println();
+  Serial.print("Connecting to ");
+  Serial.println(ssid);
+
+    WiFi.begin(ssid, password);
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  
+
+    pinMode(trigPin, OUTPUT);
+    pinMode(echoPin, INPUT);
+    tinggiBak=20;
+    gravityTds.setPin(TdsSensorPin);
+    gravityTds.setAref(5.0);  
+    gravityTds.setAdcRange(1024);  
+    gravityTds.begin();  
+    dht.begin();
+
+  Serial.println("");
+  Serial.println("WiFi connected");
+  Serial.println("IP address: ");
+  Serial.println(WiFi.localIP());
+  client.setServer(mqtt_server, 1883);
+  client.setCallback(receivedCallback);
+}
+void loop() {
+  
+  if (!client.connected()) {
+    mqttconnect();
+  }
+
+  client.loop();
+  
+  //mulai pengukuran kekeruhan air
+  int sensorValue = analogRead(kekeruhan);
+  float voltage = sensorValue * (5.0 / 1024.0) - 5.5;
+  Serial.print ("Sensor Output (V):");
+  Serial.println (voltage);
+  delay(1000);
+  //air pengukuran kekeruhan air
+
+   //mulai pengukuran volume & tinggi air
+  digitalWrite(trigPin, LOW);
+  delayMicroseconds(2);
+  digitalWrite(trigPin, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trigPin, LOW);
+  jarakAirdanSensor = pulseIn(echoPin, HIGH);
+  jarakAirdanSensor= jarakAirdanSensor*0.034/2;  
+  Serial.print("jarak air ke sensor: ");
+  Serial.println(jarakAirdanSensor);
+  delay(1000); 
+  ketinggianAir = tinggiBak-jarakAirdanSensor;
+  Serial.print("Tinggi air: ");
+  Serial.println(ketinggianAir);
+  delay(1000);
+  Volume = 3.14*49*ketinggianAir;
+  Serial.print("Volume Air: ");
+  Serial.println(Volume);
+  delay(1000);
+  //akhir pengukuran volume & tinggi air
+
+//mulai pengukuran ph air
+   for(int i=0;i<10;i++)       
+  { 
+    buf[i]=analogRead(SensorPin);
+    delay(10);
+  }
+  for(int i=0;i<9;i++)       
+  {
+    for(int j=i+1;j<10;j++)
+    {
+      if(buf[i]>buf[j])
+      {
+        temp=buf[i];
+        buf[i]=buf[j];
+        buf[j]=temp;
+      }
+    }
+  }
+  avgValue=0;
+  for(int i=2;i<8;i++)                     
+    avgValue+=buf[i];
+  float phValue=(float)avgValue*5.0/1024/6; 
+  phValue=3.5*phValue-24;                      
+  Serial.print("pH:");  
+  Serial.println(phValue);
+  delay(1000); //batas PH air
+
+  //mulai pengukuran sensor tds
+  gravityTds.setTemperature(temperature);
+  gravityTds.update();
+  Serial.print("ppm"); 
+  Serial.println(tdsValue,0);
+  Serial.print("uS");
+  Serial.println(usValue,0);
+  delay(1000);
+  //akhir pengukuran sensor tds
+
+  //awal pengukuran sensor suhu
+  long t = dht.readTemperature();
+  Serial.print("Temperature: ");
+  Serial.println(t);
+  delay(1000);
+
+  client.publish("billy/kekeruhan", String(voltage).c_str(), true);
+  client.publish("billy/tinggiAir", String(ketinggianAir).c_str(), true);
+  client.publish("billy/Volume", String(Volume).c_str(), true);
+  client.publish("billy/PH", String(phValue).c_str(), true);
+  client.publish("billy/TDS", String(tdsValue).c_str(), true);
+  client.publish("billy/us", String(usValue).c_str(), true);
+  client.publish("billy/Suhu", String(t).c_str(), true);
+
+    long now = millis();
+  if (now - lastMsg > 3000) {
+    lastMsg = now;
+  }
+}
